@@ -1,0 +1,229 @@
+// CineBook Database Schema (SQLite for seamless local zero-dependency execution)
+// Note: For PostgreSQL / Docker, see prisma/schema.postgresql.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         String   @default("CUSTOMER") // CUSTOMER | ADMIN
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  bookings     Booking[]
+  reservations SeatReservation[]
+
+  @@index([email])
+}
+
+model Movie {
+  id              String   @id @default(cuid())
+  title           String
+  description     String
+  genre           String   // Comma-separated or JSON string
+  language        String   // Comma-separated or JSON string
+  durationMinutes Int
+  certification   String   @default("U/A")
+  releaseDate     DateTime
+  posterUrl       String?
+  bannerUrl       String?
+  trailerUrl      String?
+  cast            String?  // JSON string
+  crew            String?  // JSON string
+  rating          Float?
+  status          String   @default("COMING_SOON") // COMING_SOON | NOW_SHOWING | INACTIVE
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  shows           Show[]
+
+  @@index([status])
+  @@index([releaseDate])
+}
+
+model Theatre {
+  id        String   @id @default(cuid())
+  name      String
+  address   String
+  city      String
+  area      String
+  phone     String?
+  email     String?
+  amenities String   // Comma-separated or JSON string
+  status    String   @default("ACTIVE") // ACTIVE | INACTIVE
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  screens   Screen[]
+
+  @@index([city])
+  @@index([status])
+}
+
+model Screen {
+  id           String   @id @default(cuid())
+  theatreId    String
+  name         String
+  totalSeats   Int
+  layoutConfig String?  // JSON string
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  theatre      Theatre  @relation(fields: [theatreId], references: [id], onDelete: Cascade)
+  seats        Seat[]
+  shows        Show[]
+
+  @@index([theatreId])
+}
+
+model Seat {
+  id         String   @id @default(cuid())
+  screenId   String
+  rowLabel   String
+  seatNumber Int
+  category   String   @default("REGULAR") // REGULAR | PREMIUM | RECLINER | ACCESSIBLE
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  screen         Screen            @relation(fields: [screenId], references: [id], onDelete: Cascade)
+  reservations   SeatReservation[]
+  bookingSeats   BookingSeat[]
+
+  @@unique([screenId, rowLabel, seatNumber])
+  @@index([screenId])
+  @@index([category])
+}
+
+model Show {
+  id             String   @id @default(cuid())
+  movieId        String
+  screenId       String
+  startTime      DateTime
+  endTime        DateTime
+  status         String   @default("SCHEDULED") // SCHEDULED | ACTIVE | CANCELLED | COMPLETED
+  regularPrice   Float
+  premiumPrice   Float
+  reclinerPrice  Float
+  convenienceFee Float    @default(30)
+  taxRate        Float    @default(0.18)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  movie        Movie             @relation(fields: [movieId], references: [id])
+  screen       Screen            @relation(fields: [screenId], references: [id])
+  reservations SeatReservation[]
+  bookings     Booking[]
+  bookingSeats BookingSeat[]
+
+  @@index([movieId])
+  @@index([screenId])
+  @@index([startTime])
+  @@index([status])
+}
+
+model SeatReservation {
+  id               String   @id @default(cuid())
+  showId           String
+  seatId           String
+  userId           String
+  reservationToken String   @unique @default(cuid())
+  status           String   @default("PENDING") // PENDING | CONFIRMED | EXPIRED | RELEASED
+  expiresAt        DateTime
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  show    Show    @relation(fields: [showId], references: [id])
+  seat    Seat    @relation(fields: [seatId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+
+  @@unique([showId, seatId, status])
+  @@index([showId])
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Booking {
+  id                String    @id @default(cuid())
+  bookingReference  String    @unique @default(cuid())
+  userId            String
+  showId            String
+  status            String    @default("PENDING") // PENDING | CONFIRMED | CANCELLED | FAILED
+  subtotal          Float
+  convenienceFee    Float     @default(0)
+  tax               Float     @default(0)
+  totalAmount       Float
+  verificationToken String    @unique @default(cuid())
+  checkedIn         Boolean   @default(false)
+  checkedInAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id])
+  show         Show          @relation(fields: [showId], references: [id])
+  seats        BookingSeat[]
+  payment      Payment?
+  cancellation Cancellation?
+
+  @@index([userId])
+  @@index([showId])
+  @@index([bookingReference])
+}
+
+model BookingSeat {
+  id             String @id @default(cuid())
+  bookingId      String
+  showId         String
+  seatId         String
+  priceAtBooking Float
+  category       String // REGULAR | PREMIUM | RECLINER | ACCESSIBLE
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  show    Show    @relation(fields: [showId], references: [id])
+  seat    Seat    @relation(fields: [seatId], references: [id])
+
+  @@unique([showId, seatId])
+  @@index([bookingId])
+  @@index([seatId])
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  bookingId         String   @unique
+  provider          String   @default("DEMO")
+  providerReference String?
+  amount            Float
+  currency          String   @default("INR")
+  status            String   @default("PENDING") // PENDING | SUCCESS | FAILED | CANCELLED | REFUNDED | REFUND_PENDING
+  metadata          String?  // JSON string
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+}
+
+model Cancellation {
+  id           String   @id @default(cuid())
+  bookingId    String   @unique
+  paymentId    String?
+  reason       String?
+  refundAmount Float    @default(0)
+  status       String   @default("PENDING") // PENDING | APPROVED | REFUNDED | REJECTED
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+
+  @@index([bookingId])
+}
